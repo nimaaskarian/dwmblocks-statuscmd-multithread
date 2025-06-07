@@ -1,3 +1,5 @@
+#include <sys/syscall.h>
+#include <pthread.h>
 #include<stdlib.h>
 #include<stdio.h>
 #include<sys/wait.h>
@@ -18,6 +20,7 @@
 #define CMDLENGTH		50
 #define MIN( a, b ) ( ( a < b) ? a : b )
 #define STATUSLENGTH (LENGTH(blocks) * CMDLENGTH + 1)
+
 
 typedef struct {
 	char* icon;
@@ -104,6 +107,34 @@ void getsigcmds(unsigned int signal)
 	}
 }
 
+static int args[LENGTH(blocks)] = {};
+
+void * task(void * argv) {
+  int signal =  *((int *) argv);
+  
+
+  // block all other signals
+  sigset_t block_sigset;
+  sigemptyset(&block_sigset);
+  for (int i = SIGRTMIN; i <= SIGRTMAX; i++) {
+    if (i != signal) {
+      sigaddset(&block_sigset, i);
+    }
+  }
+  sigprocmask(SIG_BLOCK, &block_sigset, NULL);
+
+  sigset_t unblock_sigset;
+  sigemptyset(&unblock_sigset);
+  sigaddset(&unblock_sigset, signal);
+  // only unblock sigset's signal
+  sigprocmask(SIG_UNBLOCK, &unblock_sigset, NULL);
+  
+  while(statusContinue) {
+    sleep(1);
+  }
+  return NULL;
+}
+
 void setupsignals()
 {
 struct sigaction sa = { .sa_sigaction = sighandler, .sa_flags = SA_SIGINFO };
@@ -116,9 +147,21 @@ struct sigaction sa = { .sa_sigaction = sighandler, .sa_flags = SA_SIGINFO };
 #endif
 
 	for (unsigned int i = 0; i < LENGTH(blocks); i++) {
-		if (blocks[i].signal > 0)
-			sigaction(SIGMINUS+blocks[i].signal, &sa, NULL);
+		if (blocks[i].signal > 0) {
+      int signal = SIGMINUS+blocks[i].signal;
+      sigaddset(&sa.sa_mask, signal);
+      // set handler for thread
+			sigaction(signal, &sa, NULL);
+      // make thread for block
+      pthread_t thread_i;
+      args[i] = signal;
+      if (pthread_create(&thread_i, NULL, task, &args[i]) != EXIT_SUCCESS) {
+        perror("thread creation failed");
+      }
+    }
 	}
+  // block signals in the main thread
+  sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
 
 }
 
@@ -187,6 +230,7 @@ void dummysighandler(int signum)
 
 void sighandler(int signum, siginfo_t *si, void *ucontext)
 {
+  printf("Handler ID: %ld\n", syscall(SYS_gettid));
 	if (si->si_value.sival_int) {
 		pid_t parent = getpid();
 		if (fork() == 0) {
