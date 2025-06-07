@@ -1,4 +1,3 @@
-#include <sys/syscall.h>
 #include <pthread.h>
 #include<stdlib.h>
 #include<stdio.h>
@@ -230,7 +229,6 @@ void dummysighandler(int signum)
 
 void sighandler(int signum, siginfo_t *si, void *ucontext)
 {
-  printf("Handler ID: %ld\n", syscall(SYS_gettid));
 	if (si->si_value.sival_int) {
 		pid_t parent = getpid();
 		if (fork() == 0) {
